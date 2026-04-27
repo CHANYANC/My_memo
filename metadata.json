@@ -1,0 +1,6 @@
+{
+  "name": "MyMemo",
+  "description": "A sleek, single-user memo application for quick note-taking, tagging, and filtering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
