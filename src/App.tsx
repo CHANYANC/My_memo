@@ -27,9 +27,12 @@ import {
   Smile,
   Compass,
   Briefcase,
-  Palette
+  Palette,
+  Type
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import DOMPurify from 'dompurify';
+import RichTextEditor from './components/RichTextEditor';
 
 // --- Types ---
 
@@ -38,6 +41,7 @@ type Note = {
   title: string;
   body: string;
   tags: string[];
+  color?: string;
   updatedAt: string;
 };
 
@@ -78,6 +82,17 @@ const AVAILABLE_COLORS = [
   { name: "Indigo", bg: "bg-indigo-500", text: "text-indigo-50" },
   { name: "Violet", bg: "bg-violet-500", text: "text-violet-50" },
   { name: "Rose", bg: "bg-rose-500", text: "text-rose-50" },
+];
+
+const NOTE_COLORS = [
+  { name: "Default", bg: "bg-[#151517]", border: "border-slate-800" },
+  { name: "Red", bg: "bg-red-900/20", border: "border-red-500/30", accent: "text-red-400" },
+  { name: "Amber", bg: "bg-amber-900/20", border: "border-amber-500/30", accent: "text-amber-400" },
+  { name: "Emerald", bg: "bg-emerald-900/20", border: "border-emerald-500/30", accent: "text-emerald-400" },
+  { name: "Blue", bg: "bg-blue-900/20", border: "border-blue-500/30", accent: "text-blue-400" },
+  { name: "Indigo", bg: "bg-indigo-900/20", border: "border-indigo-500/30", accent: "text-indigo-400" },
+  { name: "Violet", bg: "bg-violet-900/20", border: "border-violet-500/30", accent: "text-violet-400" },
+  { name: "Rose", bg: "bg-rose-900/20", border: "border-rose-500/30", accent: "text-rose-400" },
 ];
 
 const SEED_NOTES: Note[] = [
@@ -132,6 +147,7 @@ export default function App() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tagsInput, setTagsInput] = useState("");
+  const [noteColor, setNoteColor] = useState("Default");
 
   // Load Initial Data
   useEffect(() => {
@@ -248,11 +264,13 @@ export default function App() {
       setTitle(note.title);
       setBody(note.body);
       setTagsInput(note.tags.join(", "));
+      setNoteColor(note.color || "Default");
     } else {
       setEditingNote(null);
       setTitle("");
       setBody("");
       setTagsInput("");
+      setNoteColor("Default");
     }
     setIsModalOpen(true);
   };
@@ -269,7 +287,7 @@ export default function App() {
       setNotes(prev => {
         const newNotes = prev.map(n => 
           n.id === editingNote.id 
-            ? { ...n, title, body, tags, updatedAt: new Date().toISOString() } 
+            ? { ...n, title, body, tags, color: noteColor, updatedAt: new Date().toISOString() } 
             : n
         );
         return newNotes;
@@ -280,6 +298,7 @@ export default function App() {
         title,
         body,
         tags,
+        color: noteColor,
         updatedAt: new Date().toISOString(),
       };
       setNotes(prev => [newNote, ...prev]);
@@ -532,79 +551,83 @@ export default function App() {
         <main className="flex-1 p-8 overflow-y-auto bg-[#0A0A0B]">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-max">
             <AnimatePresence mode="popLayout">
-              {filteredNotes.map((note) => (
-                <motion.div
-                  key={note.id}
-                  layout
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className={`bg-[#151517] border p-6 rounded-sm flex flex-col relative group transition-all shadow-xl h-64 overflow-hidden ${selectedNoteIds.includes(note.id) ? 'border-slate-400 ring-1 ring-slate-400 font-bold bg-[#1C1C1F]' : 'border-slate-800 hover:border-slate-600'}`}
-                >
-                  {/* Top Layer: Interaction Buttons */}
-                  <div className="flex justify-between items-start mb-4 gap-3 relative z-30">
-                    <div className="flex items-center gap-3 overflow-hidden flex-1">
+              {filteredNotes.map((note) => {
+                const colorTheme = NOTE_COLORS.find(c => c.name === note.color) || NOTE_COLORS[0];
+                return (
+                  <motion.div
+                    key={note.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className={`${colorTheme.bg} border ${colorTheme.border} p-6 rounded-sm flex flex-col relative group transition-all shadow-xl h-64 overflow-hidden ${selectedNoteIds.includes(note.id) ? 'border-slate-400 ring-1 ring-slate-400 font-bold' : 'hover:border-slate-600'}`}
+                  >
+                    {/* Top Layer: Interaction Buttons */}
+                    <div className="flex justify-between items-start mb-4 gap-3 relative z-30">
+                      <div className="flex items-center gap-3 overflow-hidden flex-1">
+                        <button 
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleNoteSelection(note.id);
+                          }}
+                          className={`w-6 h-6 rounded-sm border flex items-center justify-center transition-all shrink-0 cursor-pointer ${selectedNoteIds.includes(note.id) ? 'bg-slate-100 border-slate-100 text-black shadow-lg shadow-white/10' : 'bg-black/40 border-slate-700 text-transparent hover:border-slate-500'}`}
+                        >
+                          <Check className="w-4 h-4" strokeWidth={4} />
+                        </button>
+                        <h3 className={`font-bold text-lg leading-tight truncate ${colorTheme.accent || 'text-slate-100'}`}>{note.title || "제목 없음"}</h3>
+                      </div>
+                      
                       <button 
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          toggleNoteSelection(note.id);
+                          e.preventDefault();
+                          handleDeleteNote(note.id);
                         }}
-                        className={`w-6 h-6 rounded-sm border flex items-center justify-center transition-all shrink-0 cursor-pointer ${selectedNoteIds.includes(note.id) ? 'bg-slate-100 border-slate-100 text-black shadow-lg shadow-white/10' : 'bg-black/40 border-slate-700 text-transparent hover:border-slate-500'}`}
+                        className="p-2 -mr-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all rounded-sm shrink-0 cursor-pointer"
+                        title="메모 삭제"
                       >
-                        <Check className="w-4 h-4" strokeWidth={4} />
+                        <Trash2 className="w-5 h-5 transition-transform hover:scale-110 active:scale-95" />
                       </button>
-                      <h3 className="font-bold text-lg leading-tight truncate text-slate-100">{note.title || "제목 없음"}</h3>
                     </div>
-                    
-                    <button 
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        handleDeleteNote(note.id);
-                      }}
-                      className="p-2 -mr-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all rounded-sm shrink-0 cursor-pointer"
-                      title="메모 삭제"
+
+                    {/* Body Layer: Clickable Content */}
+                    <div 
+                      className="flex-1 flex flex-col cursor-pointer relative z-10 overflow-hidden"
+                      onClick={() => handleOpenModal(note)}
                     >
-                      <Trash2 className="w-5 h-5 transition-transform hover:scale-110 active:scale-95" />
-                    </button>
-                  </div>
+                      <div 
+                        className="text-slate-400 text-sm leading-relaxed mb-6 line-clamp-5 whitespace-pre-wrap flex-1 prose-style-compact"
+                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(note.body) }}
+                      />
+                      
+                      <div className="flex flex-wrap gap-2 mt-auto">
+                        {note.tags.map(tag => {
+                          const setting = tagSettings[tag] || { color: "Slate", icon: "Tag" };
+                          const colorInfo = AVAILABLE_COLORS.find(c => c.name === setting.color) || AVAILABLE_COLORS[0];
+                          const IconComp = AVAILABLE_ICONS.find(i => i.name === setting.icon)?.icon || Tag;
 
-                  {/* Body Layer: Clickable Content */}
-                  <div 
-                    className="flex-1 flex flex-col cursor-pointer relative z-10"
-                    onClick={() => handleOpenModal(note)}
-                  >
-                    <p className="text-slate-400 text-sm leading-relaxed mb-6 line-clamp-4 whitespace-pre-wrap flex-1">
-                      {note.body}
-                    </p>
-                    
-                    <div className="flex flex-wrap gap-2 mt-auto">
-                      {note.tags.map(tag => {
-                        const setting = tagSettings[tag] || { color: "Slate", icon: "Tag" };
-                        const colorInfo = AVAILABLE_COLORS.find(c => c.name === setting.color) || AVAILABLE_COLORS[0];
-                        const IconComp = AVAILABLE_ICONS.find(i => i.name === setting.icon)?.icon || Tag;
-
-                        return (
-                          <span key={tag} className={`text-[10px] px-2 py-0.5 rounded-[1px] font-mono tracking-tight uppercase border flex items-center gap-1.5 ${colorInfo.bg} ${colorInfo.text} border-white/10`}>
-                            <IconComp size={9} strokeWidth={3} />
-                            {tag}
-                          </span>
-                        );
-                      })}
-                      {note.tags.length === 0 && (
-                        <span className="text-[10px] text-slate-700 font-mono italic">no tags</span>
-                      )}
+                          return (
+                            <span key={tag} className={`text-[10px] px-2 py-0.5 rounded-[1px] font-mono tracking-tight uppercase border flex items-center gap-1.5 ${colorInfo.bg} ${colorInfo.text} border-white/10`}>
+                              <IconComp size={9} strokeWidth={3} />
+                              {tag}
+                            </span>
+                          );
+                        })}
+                        {note.tags.length === 0 && (
+                          <span className="text-[10px] text-slate-700 font-mono italic">no tags</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Decorative Info */}
-                  <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-40 transition-opacity pointer-events-none">
-                    <ArrowRight className="w-4 h-4 text-slate-400" />
-                  </div>
-                </motion.div>
-              ))}
+                    {/* Decorative Info */}
+                    <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-40 transition-opacity pointer-events-none">
+                      <ArrowRight className="w-4 h-4 text-slate-400" />
+                    </div>
+                  </motion.div>
+                );
+              })}
 
               {/* New Note Ghost Card */}
               <motion.div 
@@ -711,7 +734,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg bg-[#121214] border border-slate-700 shadow-2xl rounded-sm p-8"
+              className={`relative w-full max-w-2xl ${NOTE_COLORS.find(c => c.name === noteColor)?.bg || 'bg-[#121214]'} border ${NOTE_COLORS.find(c => c.name === noteColor)?.border || 'border-slate-700'} shadow-2xl rounded-sm p-8 max-h-[90vh] overflow-y-auto z-50`}
             >
               <div className="flex items-center justify-between mb-8">
                 <h2 className="text-xl font-bold tracking-tight uppercase">
@@ -726,68 +749,88 @@ export default function App() {
               </div>
 
               <div className="space-y-6">
-                <div>
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-2">제목</label>
-                  <input 
-                    autoFocus
-                    type="text" 
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="제목을 입력하세요" 
-                    className="w-full bg-[#1A1A1C] border border-slate-800 focus:border-slate-500 outline-none p-3 text-sm text-white transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-2">본문</label>
-                  <textarea 
-                    rows={6}
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    placeholder="메모 내용을 입력하세요..." 
-                    className="w-full bg-[#1A1A1C] border border-slate-800 focus:border-slate-500 outline-none p-3 text-sm text-white resize-none transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-2 font-mono">태그</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      value={tagsInput}
-                      onFocus={() => setShowSuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      onChange={(e) => {
-                        setTagsInput(e.target.value);
-                        setShowSuggestions(true);
-                      }}
-                      onKeyDown={handleTagKeyDown}
-                      placeholder="쉼표로 구분 (예: 디자인, 업무)" 
-                      className="w-full bg-[#1A1A1C] border border-slate-800 focus:border-slate-500 outline-none p-3 text-sm text-white font-mono transition-colors"
-                    />
-                    
-                    <AnimatePresence>
-                      {showSuggestions && tagSuggestions.length > 0 && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="absolute left-0 right-0 top-full mt-1 bg-[#1A1A1C] border border-slate-800 shadow-2xl z-50 rounded-sm overflow-hidden"
-                        >
-                          {tagSuggestions.map((suggestion, index) => (
-                            <button
-                              key={suggestion}
-                              onClick={() => handleSelectSuggestion(suggestion)}
-                              className={`w-full text-left px-4 py-2.5 text-xs font-mono uppercase tracking-tighter flex items-center justify-between transition-colors ${index === suggestionIndex ? 'bg-slate-200 text-slate-900 font-bold' : 'text-slate-400 hover:bg-slate-800'}`}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-6">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-2">제목</label>
+                      <input 
+                        autoFocus
+                        type="text" 
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        placeholder="제목을 입력하세요" 
+                        className="w-full bg-black/40 border border-slate-800 focus:border-slate-500 outline-none p-3 text-sm text-white transition-colors"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-2">본문</label>
+                      <RichTextEditor 
+                        content={body} 
+                        onChange={(content) => setBody(content)} 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-2">메모 색상 테마</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {NOTE_COLORS.map((color) => (
+                          <button
+                            key={color.name}
+                            onClick={() => setNoteColor(color.name)}
+                            className={`h-10 rounded-sm border-2 transition-all ${color.bg} ${color.border} ${noteColor === color.name ? 'border-white scale-105 shadow-lg' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                            title={color.name}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-2 font-mono">태그</label>
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          value={tagsInput}
+                          onFocus={() => setShowSuggestions(true)}
+                          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                          onChange={(e) => {
+                            setTagsInput(e.target.value);
+                            setShowSuggestions(true);
+                          }}
+                          onKeyDown={handleTagKeyDown}
+                          placeholder="쉼표로 구분 (예: 디자인, 업무)" 
+                          className="w-full bg-black/40 border border-slate-800 focus:border-slate-500 outline-none p-3 text-sm text-white font-mono transition-colors"
+                        />
+                        
+                        <AnimatePresence>
+                          {showSuggestions && tagSuggestions.length > 0 && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: -10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -10 }}
+                              className="absolute left-0 right-0 bottom-full mb-1 bg-[#1A1A1C] border border-slate-800 shadow-2xl z-[100] rounded-sm overflow-hidden"
                             >
-                              <span>#{suggestion}</span>
-                              {index === suggestionIndex && <span className="text-[10px] opacity-60">TAB to Select</span>}
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                              {tagSuggestions.map((suggestion, index) => (
+                                <button
+                                  key={suggestion}
+                                  onClick={() => handleSelectSuggestion(suggestion)}
+                                  className={`w-full text-left px-4 py-2.5 text-xs font-mono uppercase tracking-tighter flex items-center justify-between transition-colors ${index === suggestionIndex ? 'bg-slate-200 text-slate-900 font-bold' : 'text-slate-400 hover:bg-slate-800'}`}
+                                >
+                                  <span>#{suggestion}</span>
+                                  {index === suggestionIndex && <span className="text-[10px] opacity-60">TAB to Select</span>}
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-3 pt-4">
+
+                <div className="flex gap-3 pt-6 border-t border-white/5">
                   <button 
                     onClick={() => setIsModalOpen(false)}
                     className="flex-1 bg-slate-800 text-slate-300 py-3 rounded-sm text-sm font-semibold hover:bg-slate-700 active:scale-95 transition-all"
@@ -798,7 +841,7 @@ export default function App() {
                     onClick={handleSaveNote}
                     className="flex-1 bg-slate-200 text-slate-900 py-3 rounded-sm text-sm font-bold hover:bg-white active:scale-95 transition-all"
                   >
-                    저장하기
+                    메모 저장
                   </button>
                 </div>
               </div>
