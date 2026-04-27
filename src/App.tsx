@@ -14,7 +14,20 @@ import {
   X, 
   Check,
   Hash,
-  Info
+  ArrowRight,
+  Info,
+  Settings2,
+  Flag,
+  Star,
+  Bookmark,
+  MapPin,
+  User,
+  Zap,
+  Heart,
+  Smile,
+  Compass,
+  Briefcase,
+  Palette
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -28,9 +41,44 @@ type Note = {
   updatedAt: string;
 };
 
+type TagSetting = {
+  color: string;
+  icon: string;
+};
+
 // --- Constants & Seed Data ---
 
 const LOCAL_STORAGE_KEY = "mymemo.notes";
+const TAG_SETTINGS_KEY = "mymemo.tagsettings";
+
+const AVAILABLE_ICONS = [
+  { name: "Tag", icon: Tag },
+  { name: "Hash", icon: Hash },
+  { name: "Flag", icon: Flag },
+  { name: "Star", icon: Star },
+  { name: "Bookmark", icon: Bookmark },
+  { name: "MapPin", icon: MapPin },
+  { name: "User", icon: User },
+  { name: "Zap", icon: Zap },
+  { name: "Heart", icon: Heart },
+  { name: "Smile", icon: Smile },
+  { name: "Compass", icon: Compass },
+  { name: "Briefcase", icon: Briefcase },
+];
+
+const AVAILABLE_COLORS = [
+  { name: "Slate", bg: "bg-slate-500", text: "text-slate-50" },
+  { name: "Red", bg: "bg-red-500", text: "text-red-50" },
+  { name: "Orange", bg: "bg-orange-500", text: "text-orange-50" },
+  { name: "Amber", bg: "bg-amber-500", text: "text-amber-50" },
+  { name: "Lime", bg: "bg-lime-500", text: "text-lime-50" },
+  { name: "Emerald", bg: "bg-emerald-500", text: "text-emerald-50" },
+  { name: "Cyan", bg: "bg-cyan-500", text: "text-cyan-50" },
+  { name: "Blue", bg: "bg-blue-500", text: "text-blue-50" },
+  { name: "Indigo", bg: "bg-indigo-500", text: "text-indigo-50" },
+  { name: "Violet", bg: "bg-violet-500", text: "text-violet-50" },
+  { name: "Rose", bg: "bg-rose-500", text: "text-rose-50" },
+];
 
 const SEED_NOTES: Note[] = [
   {
@@ -60,11 +108,21 @@ const SEED_NOTES: Note[] = [
 
 export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
+  const [tagSettings, setTagSettings] = useState<Record<string, TagSetting>>({});
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [filterMode, setFilterMode] = useState<"AND" | "OR" | "SINGLE">("SINGLE");
+  const [selectedNoteIds, setSelectedNoteIds] = useState<number[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isTagModalOpen, setIsTagModalOpen] = useState(false);
+  const [selectedTagToEdit, setSelectedTagToEdit] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // New: Custom Confirm Modal State
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id?: number; isBulk?: boolean }>({
+    isOpen: false
+  });
 
   // Autocomplete State
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -77,10 +135,12 @@ export default function App() {
 
   // Load Initial Data
   useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
+    const savedNotes = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const savedTagSettings = localStorage.getItem(TAG_SETTINGS_KEY);
+
+    if (savedNotes) {
       try {
-        setNotes(JSON.parse(saved));
+        setNotes(JSON.parse(savedNotes));
       } catch (e) {
         console.error("Failed to parse notes", e);
         setNotes(SEED_NOTES);
@@ -89,15 +149,30 @@ export default function App() {
       setNotes(SEED_NOTES);
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(SEED_NOTES));
     }
+
+    if (savedTagSettings) {
+      try {
+        setTagSettings(JSON.parse(savedTagSettings));
+      } catch (e) {
+        console.error("Failed to parse tag settings", e);
+      }
+    }
+
     setIsInitialized(true);
   }, []);
 
-  // Save to LocalStorage (Fixed: now saves even if length is 0)
+  // Save to LocalStorage
   useEffect(() => {
     if (isInitialized) {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(notes));
     }
   }, [notes, isInitialized]);
+
+  useEffect(() => {
+    if (isInitialized) {
+      localStorage.setItem(TAG_SETTINGS_KEY, JSON.stringify(tagSettings));
+    }
+  }, [tagSettings, isInitialized]);
 
   // Derived State: Filtered Notes
   const filteredNotes = useMemo(() => {
@@ -108,12 +183,22 @@ export default function App() {
           note.body.toLowerCase().includes(searchQuery.toLowerCase()) ||
           note.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
         
-        const matchesTag = selectedTag ? note.tags.includes(selectedTag) : true;
+        let matchesTags = true;
+        if (selectedTags.length > 0) {
+          if (filterMode === "AND") {
+            matchesTags = selectedTags.every(tag => note.tags.includes(tag));
+          } else if (filterMode === "OR") {
+            matchesTags = selectedTags.some(tag => note.tags.includes(tag));
+          } else {
+            // SINGLE mode: essentially the same as OR but meant to be used with one tag
+            matchesTags = selectedTags.some(tag => note.tags.includes(tag));
+          }
+        }
         
-        return matchesSearch && matchesTag;
+        return matchesSearch && matchesTags;
       })
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  }, [notes, searchQuery, selectedTag]);
+  }, [notes, searchQuery, selectedTags, filterMode]);
 
   // Derived State: Tags List with Count
   const allTags = useMemo(() => {
@@ -148,15 +233,13 @@ export default function App() {
     setSuggestionIndex(0);
   }, [tagSuggestions]);
 
-  // Cleanup selected tag if it no longer exists
+  // Cleanup selected tags if they no longer exist
   useEffect(() => {
-    if (isInitialized && selectedTag) {
+    if (isInitialized && selectedTags.length > 0) {
       const remainingTags = new Set(notes.flatMap(n => n.tags));
-      if (!remainingTags.has(selectedTag)) {
-        setSelectedTag(null);
-      }
+      setSelectedTags(prev => prev.filter(tag => remainingTags.has(tag)));
     }
-  }, [notes, isInitialized, selectedTag]);
+  }, [notes, isInitialized]);
 
   // Handlers
   const handleOpenModal = (note?: Note) => {
@@ -183,12 +266,14 @@ export default function App() {
       .filter(t => t !== "");
 
     if (editingNote) {
-      const updatedNotes = notes.map(n => 
-        n.id === editingNote.id 
-          ? { ...n, title, body, tags, updatedAt: new Date().toISOString() } 
-          : n
-      );
-      setNotes(updatedNotes);
+      setNotes(prev => {
+        const newNotes = prev.map(n => 
+          n.id === editingNote.id 
+            ? { ...n, title, body, tags, updatedAt: new Date().toISOString() } 
+            : n
+        );
+        return newNotes;
+      });
     } else {
       const newNote: Note = {
         id: Date.now(),
@@ -197,17 +282,70 @@ export default function App() {
         tags,
         updatedAt: new Date().toISOString(),
       };
-      setNotes([newNote, ...notes]);
+      setNotes(prev => [newNote, ...prev]);
     }
 
     setIsModalOpen(false);
   };
 
   const handleDeleteNote = (id: number) => {
-    if (window.confirm("메모를 정말 삭제하시겠습니까?")) {
-      const updatedNotes = notes.filter(n => n.id !== id);
-      setNotes(updatedNotes);
+    setDeleteConfirm({ isOpen: true, id });
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedNoteIds.length === 0) return;
+    setDeleteConfirm({ isOpen: true, isBulk: true });
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirm.isBulk) {
+      setNotes(prev => prev.filter(n => !selectedNoteIds.includes(n.id)));
+      setSelectedNoteIds([]);
+    } else if (deleteConfirm.id !== undefined) {
+      const id = deleteConfirm.id;
+      setNotes(prev => prev.filter(n => n.id !== id));
+      setSelectedNoteIds(prev => prev.filter(selectedId => selectedId !== id));
     }
+    setDeleteConfirm({ isOpen: false });
+  };
+
+  const toggleNoteSelection = (id: number) => {
+    setSelectedNoteIds(prev => 
+      prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllFiltered = () => {
+    const filteredIds = filteredNotes.map(n => n.id);
+    setSelectedNoteIds(prev => {
+      const combined = new Set([...prev, ...filteredIds]);
+      return Array.from(combined);
+    });
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedNoteIds([]);
+  };
+
+  const toggleTagSelection = (tag: string) => {
+    if (filterMode === "SINGLE") {
+      setSelectedTags(prev => prev.includes(tag) ? [] : [tag]);
+    } else {
+      setSelectedTags(prev => 
+        prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+      );
+    }
+  };
+
+  const handleUpdateTagSetting = (tagName: string, setting: Partial<TagSetting>) => {
+    setTagSettings(prev => ({
+      ...prev,
+      [tagName]: {
+        color: prev[tagName]?.color || "Slate",
+        icon: prev[tagName]?.icon || "Tag",
+        ...setting
+      }
+    }));
   };
 
   const handleSelectSuggestion = (suggestion: string) => {
@@ -242,66 +380,142 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen bg-[#0A0A0B] text-slate-100 font-sans overflow-hidden border border-slate-800">
       {/* Header */}
-      <header className="h-20 shrink-0 border-b border-slate-800 flex items-center justify-between px-8 bg-[#0F0F10]">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-slate-200 flex items-center justify-center rounded-sm">
-            <FileText className="w-6 h-6 text-black" strokeWidth={2.5} />
+        <header className="h-20 shrink-0 border-b border-slate-800 flex items-center justify-between px-8 bg-[#0F0F10]">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-slate-200 flex items-center justify-center rounded-sm">
+              <FileText className="w-6 h-6 text-black" strokeWidth={2.5} />
+            </div>
+            <h1 className="text-xl font-bold tracking-tight uppercase">MyMemo</h1>
           </div>
-          <h1 className="text-xl font-bold tracking-tight uppercase">MyMemo</h1>
-        </div>
-        
-        <div className="flex-1 max-w-md mx-12 relative group">
-          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none opacity-40 group-focus-within:opacity-100 transition-opacity">
-            <Search className="w-5 h-5 text-slate-400" />
+          
+          <div className="flex-1 max-w-md mx-12 relative group">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none opacity-40 group-focus-within:opacity-100 transition-opacity">
+              <Search className="w-5 h-5 text-slate-400" />
+            </div>
+            <input 
+              type="text" 
+              placeholder="메모 검색..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#1A1A1C] border border-slate-700 rounded-sm py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-slate-400 placeholder:text-slate-600 transition-colors"
+            />
           </div>
-          <input 
-            type="text" 
-            placeholder="메모 검색..." 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#1A1A1C] border border-slate-700 rounded-sm py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-slate-400 placeholder:text-slate-600 transition-colors"
-          />
-        </div>
 
-        <button 
-          onClick={() => handleOpenModal()}
-          className="bg-slate-200 text-slate-900 px-5 py-2.5 rounded-sm font-semibold text-sm flex items-center gap-2 hover:bg-white active:scale-95 transition-all shadow-lg"
-        >
-          <Plus className="w-5 h-5" strokeWidth={2.5} />
-          새 메모
-        </button>
-      </header>
+          <div className="flex items-center gap-3">
+            <div className="flex bg-[#1A1A1C] border border-slate-700 p-0.5 rounded-sm mr-2">
+              <button 
+                onClick={handleSelectAllFiltered}
+                className="text-[10px] px-3 py-1.5 rounded-[1px] text-slate-400 hover:text-slate-200 transition-colors uppercase font-bold"
+                title="현재 필터링된 모든 메모 선택"
+              >
+                Select All
+              </button>
+              <div className="w-px bg-slate-700 mx-0.5" />
+              <button 
+                onClick={handleDeselectAll}
+                className="text-[10px] px-3 py-1.5 rounded-[1px] text-slate-400 hover:text-slate-200 transition-colors uppercase font-bold"
+                title="모든 선택 해제"
+              >
+                Clear
+              </button>
+            </div>
+
+            <AnimatePresence>
+              {selectedNoteIds.length > 0 && (
+                <motion.button
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  onClick={handleDeleteSelected}
+                  className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2.5 rounded-sm font-semibold text-sm flex items-center gap-2 hover:bg-red-500/20 transition-all"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{selectedNoteIds.length}개 삭제</span>
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            <button 
+              onClick={() => handleOpenModal()}
+              className="bg-slate-200 text-slate-900 px-5 py-2.5 rounded-sm font-semibold text-sm flex items-center gap-2 hover:bg-white active:scale-95 transition-all shadow-lg"
+            >
+              <Plus className="w-5 h-5" strokeWidth={2.5} />
+              새 메모
+            </button>
+          </div>
+        </header>
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-64 border-r border-slate-800 bg-[#0F0F10] p-6 flex flex-col shrink-0">
-          <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-4">필터</div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">필터</div>
+            <div className="flex bg-[#1A1A1C] border border-slate-700 p-0.5 rounded-sm">
+              <button 
+                onClick={() => setFilterMode("SINGLE")}
+                className={`text-[9px] px-2 py-1 rounded-[1px] transition-all ${filterMode === "SINGLE" ? "bg-slate-200 text-slate-900 font-bold" : "text-slate-500 hover:text-slate-300"}`}
+              >
+                ONE
+              </button>
+              <button 
+                onClick={() => setFilterMode("OR")}
+                className={`text-[9px] px-2 py-1 rounded-[1px] transition-all ${filterMode === "OR" ? "bg-slate-200 text-slate-900 font-bold" : "text-slate-500 hover:text-slate-300"}`}
+              >
+                OR
+              </button>
+              <button 
+                onClick={() => setFilterMode("AND")}
+                className={`text-[9px] px-2 py-1 rounded-[1px] transition-all ${filterMode === "AND" ? "bg-slate-200 text-slate-900 font-bold" : "text-slate-500 hover:text-slate-300"}`}
+              >
+                AND
+              </button>
+            </div>
+          </div>
           <nav className="space-y-1">
             <button 
-              onClick={() => setSelectedTag(null)}
-              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-sm transition-all text-sm font-medium border-l-4 ${!selectedTag ? 'bg-slate-800/50 text-white border-slate-200' : 'text-slate-400 border-transparent hover:bg-slate-800/30'}`}
+              onClick={() => setSelectedTags([])}
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-sm transition-all text-sm font-medium border-l-4 ${selectedTags.length === 0 ? 'bg-slate-800/50 text-white border-slate-200' : 'text-slate-400 border-transparent hover:bg-slate-800/30'}`}
             >
               <span>전체 메모</span>
-              <span className={`text-xs px-2 py-0.5 rounded transition-colors ${!selectedTag ? 'bg-slate-700 text-slate-200' : 'bg-slate-800 text-slate-500'}`}>
+              <span className={`text-xs px-2 py-0.5 rounded transition-colors ${selectedTags.length === 0 ? 'bg-slate-700 text-slate-200' : 'bg-slate-800 text-slate-500'}`}>
                 {notes.length}
               </span>
             </button>
 
-            {allTags.map(([tag, count]) => (
-              <button 
-                key={tag}
-                onClick={() => setSelectedTag(tag === selectedTag ? null : tag)}
-                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-sm transition-all text-sm border-l-4 ${tag === selectedTag ? 'bg-slate-800/50 text-white border-slate-200' : 'text-slate-400 border-transparent hover:bg-slate-800/30'}`}
-              >
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <Hash className="w-3.5 h-3.5 shrink-0 opacity-40" />
-                  <span className="truncate">{tag}</span>
+            {allTags.map(([tag, count]) => {
+              const setting = tagSettings[tag] || { color: "Slate", icon: "Tag" };
+              const colorInfo = AVAILABLE_COLORS.find(c => c.name === setting.color) || AVAILABLE_COLORS[0];
+              const IconComp = AVAILABLE_ICONS.find(i => i.name === setting.icon)?.icon || Tag;
+
+              return (
+                <div key={tag} className="group/tag flex items-center gap-1">
+                  <button 
+                    onClick={() => toggleTagSelection(tag)}
+                    className={`flex-1 flex items-center justify-between px-4 py-2.5 rounded-sm transition-all text-sm border-l-4 ${selectedTags.includes(tag) ? 'bg-slate-800/50 text-white border-slate-200' : 'text-slate-400 border-transparent hover:bg-slate-800/30'}`}
+                  >
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className={`w-3.5 h-3.5 flex items-center justify-center rounded-sm shrink-0 transition-all ${selectedTags.includes(tag) ? `bg-slate-200 text-black` : `${colorInfo.bg} ${colorInfo.text}`}`}>
+                        <IconComp size={10} strokeWidth={3} />
+                      </div>
+                      <span className="truncate">{tag}</span>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded transition-colors ${selectedTags.includes(tag) ? 'bg-slate-700 text-slate-200' : 'bg-slate-800 text-slate-500'}`}>
+                      {count}
+                    </span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setSelectedTagToEdit(tag);
+                      setIsTagModalOpen(true);
+                    }}
+                    className="p-2 text-slate-600 hover:text-slate-300 opacity-0 group-hover/tag:opacity-100 transition-opacity"
+                    title="태그 설정"
+                  >
+                    <Settings2 size={14} />
+                  </button>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded transition-colors ${tag === selectedTag ? 'bg-slate-700 text-slate-200' : 'bg-slate-800 text-slate-500'}`}>
-                  {count}
-                </span>
-              </button>
-            ))}
+              );
+            })}
           </nav>
           
           <div className="mt-auto">
@@ -315,60 +529,173 @@ export default function App() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-max overflow-y-auto bg-[#0A0A0B]">
-          <AnimatePresence mode="popLayout">
-            {filteredNotes.map((note) => (
-              <motion.div
-                key={note.id}
-                layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-[#151517] border border-slate-800 p-6 rounded-sm flex flex-col relative group hover:border-slate-500 transition-all cursor-pointer shadow-xl h-64"
-                onClick={() => handleOpenModal(note)}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-bold text-lg leading-tight pr-8 line-clamp-1">{note.title || "제목 없음"}</h3>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteNote(note.id);
-                    }}
-                    className="absolute top-4 right-4 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-1 hover:bg-red-500/10 rounded-sm"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
-                <p className="text-slate-400 text-sm leading-relaxed mb-6 flex-1 line-clamp-3 whitespace-pre-wrap">
-                  {note.body}
-                </p>
-                <div className="flex flex-wrap gap-2 mt-auto">
-                  {note.tags.map(tag => (
-                    <span key={tag} className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-sm font-mono tracking-tight uppercase">
-                      #{tag}
-                    </span>
-                  ))}
-                  {note.tags.length === 0 && (
-                    <span className="text-[10px] text-slate-600 font-mono italic">no tags</span>
-                  )}
-                </div>
-              </motion.div>
-            ))}
+        <main className="flex-1 p-8 overflow-y-auto bg-[#0A0A0B]">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-max">
+            <AnimatePresence mode="popLayout">
+              {filteredNotes.map((note) => (
+                <motion.div
+                  key={note.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className={`bg-[#151517] border p-6 rounded-sm flex flex-col relative group transition-all shadow-xl h-64 overflow-hidden ${selectedNoteIds.includes(note.id) ? 'border-slate-400 ring-1 ring-slate-400 font-bold bg-[#1C1C1F]' : 'border-slate-800 hover:border-slate-600'}`}
+                >
+                  {/* Top Layer: Interaction Buttons */}
+                  <div className="flex justify-between items-start mb-4 gap-3 relative z-30">
+                    <div className="flex items-center gap-3 overflow-hidden flex-1">
+                      <button 
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleNoteSelection(note.id);
+                        }}
+                        className={`w-6 h-6 rounded-sm border flex items-center justify-center transition-all shrink-0 cursor-pointer ${selectedNoteIds.includes(note.id) ? 'bg-slate-100 border-slate-100 text-black shadow-lg shadow-white/10' : 'bg-black/40 border-slate-700 text-transparent hover:border-slate-500'}`}
+                      >
+                        <Check className="w-4 h-4" strokeWidth={4} />
+                      </button>
+                      <h3 className="font-bold text-lg leading-tight truncate text-slate-100">{note.title || "제목 없음"}</h3>
+                    </div>
+                    
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleDeleteNote(note.id);
+                      }}
+                      className="p-2 -mr-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all rounded-sm shrink-0 cursor-pointer"
+                      title="메모 삭제"
+                    >
+                      <Trash2 className="w-5 h-5 transition-transform hover:scale-110 active:scale-95" />
+                    </button>
+                  </div>
 
-            {/* New Note Ghost Card */}
-            <motion.div 
-              layout
-              onClick={() => handleOpenModal()}
-              className="border border-dashed border-slate-800 p-6 rounded-sm flex flex-col items-center justify-center text-slate-600 hover:text-slate-400 hover:border-slate-600 transition-all cursor-pointer group h-64 bg-slate-900/10"
-            >
-              <Plus className="w-8 h-8 mb-2 transition-transform group-hover:scale-110" />
-              <span className="text-sm font-medium uppercase tracking-tight">새로운 메모 작성</span>
-            </motion.div>
-          </AnimatePresence>
+                  {/* Body Layer: Clickable Content */}
+                  <div 
+                    className="flex-1 flex flex-col cursor-pointer relative z-10"
+                    onClick={() => handleOpenModal(note)}
+                  >
+                    <p className="text-slate-400 text-sm leading-relaxed mb-6 line-clamp-4 whitespace-pre-wrap flex-1">
+                      {note.body}
+                    </p>
+                    
+                    <div className="flex flex-wrap gap-2 mt-auto">
+                      {note.tags.map(tag => {
+                        const setting = tagSettings[tag] || { color: "Slate", icon: "Tag" };
+                        const colorInfo = AVAILABLE_COLORS.find(c => c.name === setting.color) || AVAILABLE_COLORS[0];
+                        const IconComp = AVAILABLE_ICONS.find(i => i.name === setting.icon)?.icon || Tag;
+
+                        return (
+                          <span key={tag} className={`text-[10px] px-2 py-0.5 rounded-[1px] font-mono tracking-tight uppercase border flex items-center gap-1.5 ${colorInfo.bg} ${colorInfo.text} border-white/10`}>
+                            <IconComp size={9} strokeWidth={3} />
+                            {tag}
+                          </span>
+                        );
+                      })}
+                      {note.tags.length === 0 && (
+                        <span className="text-[10px] text-slate-700 font-mono italic">no tags</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Decorative Info */}
+                  <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-40 transition-opacity pointer-events-none">
+                    <ArrowRight className="w-4 h-4 text-slate-400" />
+                  </div>
+                </motion.div>
+              ))}
+
+              {/* New Note Ghost Card */}
+              <motion.div 
+                layout
+                onClick={() => handleOpenModal()}
+                className="border border-dashed border-slate-800 p-6 rounded-sm flex flex-col items-center justify-center text-slate-600 hover:text-slate-400 hover:border-slate-600 transition-all cursor-pointer group h-64 bg-slate-900/10"
+              >
+                <Plus className="w-8 h-8 mb-2 transition-transform group-hover:scale-110" />
+                <span className="text-xs font-bold uppercase tracking-widest">Add New Note</span>
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </main>
       </div>
 
-      {/* Modal */}
+      {/* Tag Settings Modal */}
+      <AnimatePresence>
+        {isTagModalOpen && selectedTagToEdit && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsTagModalOpen(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-sm bg-[#121214] border border-slate-700 shadow-2xl rounded-sm p-8"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight uppercase">태그 설정</h2>
+                  <p className="text-[10px] text-slate-500 font-mono mt-1">EDITING: #{selectedTagToEdit}</p>
+                </div>
+                <button 
+                  onClick={() => setIsTagModalOpen(false)}
+                  className="text-slate-500 hover:text-white transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-8">
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-4">아이콘 선택</label>
+                  <div className="grid grid-cols-6 gap-2">
+                    {AVAILABLE_ICONS.map(({ name, icon: IconComp }) => (
+                      <button
+                        key={name}
+                        onClick={() => handleUpdateTagSetting(selectedTagToEdit, { icon: name })}
+                        className={`aspect-square flex items-center justify-center rounded-sm transition-all ${tagSettings[selectedTagToEdit]?.icon === name ? 'bg-slate-200 text-black shadow-lg scale-110' : 'bg-[#1A1A1C] border border-slate-800 text-slate-500 hover:border-slate-500'}`}
+                      >
+                        <IconComp size={16} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 font-bold block mb-4">색상 선택</label>
+                  <div className="grid grid-cols-6 gap-2">
+                    {AVAILABLE_COLORS.map(({ name, bg }) => (
+                      <button
+                        key={name}
+                        onClick={() => handleUpdateTagSetting(selectedTagToEdit, { color: name })}
+                        className={`aspect-square rounded-full transition-all border-2 ${bg} ${tagSettings[selectedTagToEdit]?.color === name ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                        title={name}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    onClick={() => setIsTagModalOpen(false)}
+                    className="w-full bg-slate-200 text-slate-900 py-3 rounded-sm text-sm font-bold hover:bg-white transition-all uppercase tracking-widest"
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Note Modal */}
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
@@ -474,6 +801,51 @@ export default function App() {
                     저장하기
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Delete Confirmation Modal */}
+      <AnimatePresence>
+        {deleteConfirm.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeleteConfirm({ isOpen: false })}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-[#121214] border border-slate-800 p-8 rounded-sm shadow-2xl text-center"
+            >
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Trash2 className="w-8 h-8 text-red-500" />
+              </div>
+              <h2 className="text-xl font-bold mb-2">메모 삭제 확인</h2>
+              <p className="text-slate-400 text-sm mb-8 leading-relaxed">
+                {deleteConfirm.isBulk 
+                  ? `${selectedNoteIds.length}개의 선택된 메모를 삭제하시겠습니까?` 
+                  : "선택한 메모를 정말 삭제하시겠습니까? 삭제된 메모는 복구할 수 없습니다."}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={() => setDeleteConfirm({ isOpen: false })}
+                  className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors uppercase text-[10px] font-bold tracking-widest rounded-sm"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={confirmDelete}
+                  className="px-4 py-3 bg-red-600 hover:bg-red-500 text-white transition-colors uppercase text-[10px] font-bold tracking-widest rounded-sm"
+                >
+                  삭제
+                </button>
               </div>
             </motion.div>
           </div>
